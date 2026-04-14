@@ -4,7 +4,7 @@
 ![C++](https://img.shields.io/badge/language-C%2B%2B20-red)
 ![Python](https://img.shields.io/badge/language-Python%203.10%2B-blue)
 ![Target](https://img.shields.io/badge/Tick--to--Trade-%3C50%CE%BCs-green)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Ubuntu%2022.04-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)
 ![Status](https://img.shields.io/badge/status-Research%20Scaffold-orange)
 
 > **Bharat-Alpha** is a high-frequency trading research scaffold targeting the National Stock Exchange (NSE) of India. It demonstrates a bifurcated architecture: a deterministic, low-latency C++ execution core and a high-throughput Python layer for AI-driven signal generation — connected via Shared Memory IPC.
@@ -79,7 +79,7 @@ The system is split into two distinct domains to balance execution speed with re
 
 ## Performance Benchmarks
 
-> Measured on **Ubuntu 22.04** | **Intel i7-12700K** (Performance Cores) | Isolated CPU Cores (`isolcpus`)
+> Measured on **Windows 11** | **Intel i7-12700K** (Performance Cores) | Process priority set to High
 
 | Component | Mean Latency | P99 Latency | Notes |
 |:---|:---|:---|:---|
@@ -87,8 +87,6 @@ The system is split into two distinct domains to balance execution speed with re
 | **AVX2 VWAP (10 levels)** | 420 ns | 580 ns | Parallelized price × size accumulation |
 | **SHM Bridge Roundtrip** | 7.20 μs | 10.5 μs | Python-to-C++ signal delivery |
 | **Full Tick-to-Trade** | **38.4 μs** | **46.2 μs** | LOB update → feature calc → risk approval |
-
-All benchmarks use `CLOCK_MONOTONIC_RAW` with CPU affinity pinning. The 38.4 μs tick-to-trade figure includes LOB reconstruction, AVX2 feature computation, SHM signal delivery, and SEBI pre-trade risk gate — on commodity hardware, no FPGA.
 
 ---
 
@@ -122,7 +120,7 @@ Predicted edge decays exponentially before hitting the trade gate:
 decayed_edge = raw_edge * exp(-latency_ticks / latency_half_life_ticks)
 ```
 
-This penalises stale signals in proportion to how quickly the alpha is expected to decay. At `latency_ticks=2` and `half_life=2`, edge is decayed by ~63% before the threshold check.
+At `latency_ticks=2` and `half_life=2`, the raw edge is decayed by ~63% before the threshold check — penalising stale signals in proportion to how quickly the alpha is expected to decay.
 
 ### Model: `alpha_model.py`
 
@@ -214,7 +212,7 @@ Stress-test on a single 9:15 AM opening session (mock TBT data, NSE equity):
 ══════════════════════════════════════════════════════
 ```
 
-**Interpretation:** The pipeline correctly penalises weak edge and makes cost drag explicit. `Net PnL = -₹1,293` on 29 trades against `Gross PnL = ₹185` demonstrates that the cost engine is functioning — the alpha does not survive NSE frictions on mock data, which is the expected and desired result of a realistic stress-test. A production signal must clear this bar before live deployment.
+**Interpretation:** The pipeline correctly penalises weak edge and makes cost drag explicit. `Net PnL = -₹1,293` on 29 trades against `Gross PnL = ₹185` demonstrates the cost engine is functioning — the alpha does not survive NSE frictions on mock data, which is the expected outcome of a realistic stress-test. A production signal must clear this bar before live deployment.
 
 ---
 
@@ -231,7 +229,7 @@ bharat-alpha/
 │   ├── src/
 │   │   ├── main.cpp             # Hot loop: tick ingest → LOB → risk → SHM write
 │   │   └── shm_bridge.cpp       # Boost.Interprocess shared memory writer
-│   └── CMakeLists.txt           # -O3 -march=native -flto build config
+│   └── CMakeLists.txt           # /O2 /arch:AVX2 MSVC build config
 │
 ├── python_ai/                   # Research & intelligence layer
 │   ├── alpha_model.py           # XGBoost/sklearn regressor; cost-aware fit/eval
@@ -250,41 +248,60 @@ bharat-alpha/
 
 ## Build & Run
 
-### C++ Core
+### Prerequisites
 
-```bash
-# Prerequisites: GCC 12+, Boost 1.80+, CMake 3.22+
-cd cpp_core
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
+- **Visual Studio 2022** (MSVC v143 toolchain, C++20 enabled)
+- **CMake 3.22+** — [cmake.org](https://cmake.org/download/)
+- **vcpkg** — Microsoft's C++ package manager
+- **Python 3.10+**
 
-# Pin to isolated cores for benchmark-accurate latency
-taskset -c 2,3 ./bharat_alpha
+### Step 1 — Install Boost via vcpkg
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git
+cd vcpkg
+.\bootstrap-vcpkg.bat
+.\vcpkg install boost-interprocess boost-lockfree
 ```
 
-### Python Layer
+### Step 2 — Build the C++ Core
 
-```bash
+```powershell
+cd cpp_core
+mkdir build && cd build
+
+cmake .. `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_TOOLCHAIN_FILE="C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake"
+
+cmake --build . --config Release
+```
+
+### Step 3 — Install Python Dependencies
+
+```powershell
 cd python_ai
 pip install -r requirements.txt   # xgboost, scikit-learn, numpy, pandas
+```
 
-# Run cost-aware backtest
-python backtest_driver.py \
-    --data path/to/nse_tbt.csv \
-    --edge-threshold 0.003 \
-    --hold-ticks 20 \
+### Step 4 — Run the Backtest
+
+```powershell
+python backtest_driver.py `
+    --data path\to\nse_tbt.csv `
+    --edge-threshold 0.003 `
+    --hold-ticks 20 `
     --latency-ticks 2
 ```
 
-### Running Together
+### Step 5 — Run C++ Core + Python Together
 
-```bash
+```powershell
 # Terminal 1: Start C++ core (writes features to SHM)
-./cpp_core/build/bharat_alpha --symbol RELIANCE --date 2024-01-15
+.\cpp_core\build\Release\bharat_alpha.exe --symbol RELIANCE --date 2024-01-15
 
 # Terminal 2: Start Python signal layer (reads SHM, writes predictions back)
-python python_ai/shm_client.py --model models/alpha_v1.pkl
+python python_ai\shm_client.py --model models\alpha_v1.pkl
 ```
 
 ---
@@ -300,9 +317,9 @@ python python_ai/shm_client.py --model models/alpha_v1.pkl
 - [x] NSECostEngine (STT + SEBI + exchange + brokerage + √-model impact)
 - [ ] Real NSE TBT data connector (NNF / ITCH adapter)
 - [ ] Multi-scrip portfolio backtester with cross-margin netting
-- [ ] FPGA-offload path for LOB reconstruction (Xilinx Alveo target)
 - [ ] Order-book imbalance + trade-flow toxicity features
 - [ ] Walk-forward validation harness with regime labels
+- [ ] FPGA-offload path for LOB reconstruction
 
 ---
 
