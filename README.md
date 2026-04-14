@@ -47,6 +47,20 @@ cpp_core/              # Ultra-low latency execution engine
   ├── src/             # Main loop and SHM bridge implementation
   └── CMakeLists.txt   # Optimized build config (-O3, -march=native)
 python_ai/             # Research & Intelligence layer
+
+---
+
+## 📈 Sample Execution
+
+When running the `cpp_core`, you should see the engine initializing and processing the NSE feed:
+
+```text
+[09:15:00.001] [INFO] SHM Segment Created: 'alpha_shm' (4096 KB)
+[09:15:00.045] [INFO] LOB Initialized for Symbol: RELIANCE.NSE
+[09:15:00.102] [DATA] Tick Received: Bid 2450.05 (100) | Ask 2450.10 (250)
+[09:15:00.105] [SIMD] VWAP Calculated (Top 10): 2450.072
+[09:15:00.110] [RISK] Order Approved: BUY 50 @ 2450.05 | Latency: 32μs
+[09:15:00.115] [SHM] Signal Sent to Python Intelligence Layer...
   ├── feature_store.py # Normalizes NSE TBT data into tensors
   ├── alpha_model.py   # Signal generation logic
   └── shm_client.py    # Python-side shared memory interface
